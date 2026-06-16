@@ -1,0 +1,13 @@
+[[pages]]
+instructions = { entrypoint = "space-runner/index.html", base = "." }
+production_branch = "main"
+
+# 或者如果用 worker-based 部署，用下面的格式：
+# name = "game-h5"
+# compatibility_date = "2024-01-01"
+
+# 使用说明：
+# Cloudflare Pages 会自动识别 static files 项目
+# 在 settings 中设置 build command 为空，
+# framework preset 选 "Other"
+# 或者直接在 dashboard 绑定 GitHub 仓库

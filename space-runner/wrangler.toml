@@ -1,0 +1,16 @@
+# Cloudflare Pages 配置 for Space Runner
+# 在 Cloudflare Dashboard 中：
+# 1. 新建 Pages 项目 -> 连接到 GitHub
+# 2. 选择本仓库 game_h5
+# 3. 框架预设选 "None"
+# 4. 构建命令留空
+# 5. 输出目录: space-runner
+# 6. 生产分支: main
+
+name = "space-runner"
+compatibility_date = "2024-01-01"
+
+# 如果要用 worker 模式：
+# [[routes]]
+# pattern = "space-runner.example.com/*"
+# zone_name = "example.com"
