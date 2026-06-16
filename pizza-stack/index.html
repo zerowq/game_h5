@@ -25,8 +25,8 @@
 <canvas id="gameCanvas"></canvas>
 <script>
 // ============================================================
-//  披萨叠叠乐 - Pizza Stack
-//  切一刀 → 叠一层 → 匹配配料 → 越叠越高
+//  披萨叠叠乐 - Pizza Stack (v2 - 修复版)
+//  修复：切割逻辑、订单系统、相机跟随、UI显示、边界情况
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
@@ -63,6 +63,7 @@ let highScore = parseInt(localStorage.getItem('pizzaStackHigh') || '0');
 let layerCount = 0;
 let combo = 0;
 let frameCount = 0;
+let animTime = 0;  // 统一动画计时器，替代 Date.now()
 
 // --- 配料类型 ---
 const INGREDIENTS = [
@@ -76,8 +77,8 @@ const INGREDIENTS = [
 
 // --- 面团/披萨层 ---
 let currentDough = null;
-let stack = []; // 已叠好的披萨层
-let fallingPieces = []; // 切掉的飞散面片
+let stack = [];
+let fallingPieces = [];
 let particles = [];
 let cameraY = 0;
 let targetCameraY = 0;
@@ -86,36 +87,34 @@ let targetCameraY = 0;
 let currentOrder = [];
 let orderTimer = 0;
 let orderComplete = false;
+let orderFeedbackTimer = 0;  // 订单完成/失败反馈显示时间
 
 function generateOrder() {
     currentOrder = [];
-    const count = Math.min(2 + Math.floor(layerCount / 5), 4);
+    const count = Math.min(2 + Math.floor(layerCount / 8), 3);  // 最多3个配料
     const shuffled = [...INGREDIENTS].sort(() => Math.random() - 0.5);
     for (let i = 0; i < count; i++) {
         currentOrder.push(shuffled[i]);
     }
     orderComplete = false;
-    orderTimer = 300; // 5秒完成订单
+    orderTimer = 400;  // 增加到约6.7秒
+    orderFeedbackTimer = 60;  // 反馈显示1秒
 }
 
 // --- 面团生成 ---
 function spawnDough() {
     const dir = Math.random() < 0.5 ? -1 : 1;
     currentDough = {
-        x: dir > 0 ? -80 * scale : W + 80 * scale,
+        x: dir > 0 ? -currentDough.w : W + currentDough.w,
         y: getStackTopY(),
-        w: (80 + Math.random() * 40) * scale,
+        w: (70 + Math.random() * 30) * scale,  // 稍微缩小宽度范围
         h: 18 * scale,
-        speed: (2 + Math.random() * 2) * scale * dir,
+        speed: (1.5 + Math.random() * 1.5) * scale * dir,  // 降低速度
         ingredients: [],
-        cutLine: 0.5, // 切割线位置 (0-1)
-        cutting: false,
-        cutProgress: 0,
-        wobble: 0,
-        wobbleSpeed: 0.05 + Math.random() * 0.03,
+        perfectCut: false,
     };
-    // 随机分配配料
-    const ingCount = Math.floor(Math.random() * 3) + 1;
+    // 随机分配2-3个配料
+    const ingCount = Math.floor(Math.random() * 2) + 2;
     for (let i = 0; i < ingCount; i++) {
         currentDough.ingredients.push(INGREDIENTS[Math.floor(Math.random() * INGREDIENTS.length)]);
     }
@@ -126,7 +125,7 @@ function getStackTopY() {
     return stack[stack.length - 1].y - stack[stack.length - 1].h;
 }
 
-// --- 切割逻辑 ---
+// --- 切割逻辑（修复版）---
 function cutDough() {
     if (!currentDough || currentDough.cutting) return;
     currentDough.cutting = true;
@@ -135,28 +134,41 @@ function cutDough() {
     const leftW = cutX - currentDough.x;
     const rightW = currentDough.x + currentDough.w - cutX;
     
-    // 判断哪边更大
-    if (leftW > rightW * 1.5) {
-        // 左边太大，丢弃左边，保留右边
-        const keptW = rightW;
-        const keptX = cutX;
-        dropLeftPiece(leftW, currentDough.x);
-        finalizeLayer(keptX, keptW);
-    } else if (rightW > leftW * 1.5) {
-        // 右边太大，丢弃右边，保留左边
-        const keptW = leftW;
-        const keptX = currentDough.x;
-        dropRightPiece(rightW, cutX);
-        finalizeLayer(keptX, keptW);
-    } else {
-        // 两边差不多大，都保留（完美切割！）
+    // 修复：更严格的完美切割判定（差距不超过20%）
+    const tolerance = 0.2;
+    const minW = Math.min(leftW, rightW);
+    const maxW = Math.max(leftW, rightW);
+    
+    if (maxW / minW < (1 + tolerance)) {
+        // 完美切割！两边都保留
+        currentDough.perfectCut = true;
         finalizeLayer(currentDough.x, currentDough.w);
-        // 完美切割 bonus
         combo++;
         score += 10 * combo;
         addParticles(cutX, currentDough.y + currentDough.h / 2, '#FFD700', 15);
+        showOrderFeedback(true);
+    } else if (leftW > rightW) {
+        // 左边太大，丢弃左边
+        dropLeftPiece(leftW, currentDough.x);
+        finalizeLayer(cutX, rightW);
+        combo = 0;  // 重置连击
+        showOrderFeedback(false);
+    } else {
+        // 右边太大，丢弃右边
+        dropRightPiece(rightW, cutX + rightW);
+        finalizeLayer(cutX, leftW);
+        combo = 0;  // 重置连击
+        showOrderFeedback(false);
     }
 }
+
+function showOrderFeedback(success) {
+    orderFeedbackTimer = 60;  // 显示1秒
+    orderFeedbackSuccess = success;
+}
+
+let orderFeedbackTimer = 0;
+let orderFeedbackSuccess = false;
 
 function dropLeftPiece(w, startX) {
     fallingPieces.push({
@@ -205,29 +217,31 @@ function finalizeLayer(x, w) {
     // 检查订单
     checkOrder();
     
-    // 生成新面团
+    // 生成新面团（延迟一点让玩家看到结果）
     setTimeout(() => {
         if (state === STATE.PLAYING) spawnDough();
-    }, 500);
+    }, 400);
 }
 
-// --- 订单检查 ---
+// --- 订单检查（修复版）---
 function checkOrder() {
     if (orderComplete || currentOrder.length === 0) return;
     
     const layerIng = stack[stack.length - 1].ingredients.map(i => i.name);
     const orderIng = currentOrder.map(i => i.name);
     
-    // 检查配料是否匹配
+    // 修复：只要有至少一个配料匹配就完成订单
     let matchCount = 0;
-    for (const ing of orderIng) {
-        if (layerIng.includes(ing)) matchCount++;
+    for (const orderItem of orderIng) {
+        if (layerIng.includes(orderItem)) matchCount++;
     }
     
-    if (matchCount >= Math.ceil(orderIng.length / 2)) {
+    // 只要有一个匹配就算完成
+    if (matchCount >= 1) {
         orderComplete = true;
         score += 50;
         addParticles(W / 2, H * 0.15, '#00FF00', 20);
+        showOrderFeedback(true);
     }
 }
 
@@ -254,11 +268,13 @@ function startGame() {
     layerCount = 0;
     combo = 0;
     frameCount = 0;
+    animTime = 0;
     stack = [];
     fallingPieces = [];
     particles = [];
     cameraY = 0;
     targetCameraY = 0;
+    orderFeedbackTimer = 0;
     generateOrder();
     spawnDough();
 }
@@ -316,14 +332,18 @@ document.addEventListener('keydown', (e) => {
 
 // --- 更新 ---
 function update() {
+    animTime += 0.016;  // 约60fps的时间增量
+    
     if (state !== STATE.PLAYING) return;
     frameCount++;
     
     // 更新面团
     if (currentDough && !currentDough.cutting) {
         currentDough.x += currentDough.speed;
-        currentDough.wobble += currentDough.wobbleSpeed;
-        currentDough.cutLine = 0.3 + Math.sin(currentDough.wobble) * 0.35;
+        
+        // 修复：面团在栈顶水平来回移动，而不是上下
+        const stackTop = getStackTopY();
+        currentDough.y = stackTop;
         
         // 边界反弹
         if (currentDough.x < -currentDough.w) {
@@ -359,23 +379,30 @@ function update() {
     if (!orderComplete) {
         orderTimer--;
         if (orderTimer <= 0) {
-            // 订单超时，扣分
+            // 订单超时 - 给予明确反馈
+            showOrderFeedback(false);
             score = Math.max(0, score - 30);
             combo = 0;
             generateOrder();
         }
     }
     
-    // 相机跟随（向上移动）
+    // 订单反馈计时
+    if (orderFeedbackTimer > 0) {
+        orderFeedbackTimer--;
+    }
+    
+    // 相机跟随（修复：更平滑的过渡）
     const stackHeight = stack.length * 20 * scale;
-    const maxStackH = H * 0.7;
+    const maxStackH = H * 0.6;  // 减少最大可见高度
     if (stackHeight > maxStackH) {
         targetCameraY = -(stackHeight - maxStackH);
     }
-    cameraY += (targetCameraY - cameraY) * 0.1;
+    // 更平滑的相机跟随
+    cameraY += (targetCameraY - cameraY) * 0.08;
     
-    // 检查失败条件（面团掉出屏幕下方）
-    if (currentDough && currentDough.y > H + 50) {
+    // 检查失败条件（修复：面团超出屏幕边界）
+    if (currentDough && (currentDough.y > H + 100 || currentDough.x < -200 || currentDough.x > W + 200)) {
         gameOver();
     }
 }
@@ -390,8 +417,8 @@ function drawPizzaLayer(layer, offsetY = 0) {
     
     ctx.save();
     
-    //  wobbling effect
-    const wobbleOffset = Math.sin(layer.wobblePhase + frameCount * 0.02) * 2 * s;
+    // wobbling effect
+    const wobbleOffset = Math.sin(layer.wobblePhase + animTime * 2) * 2 * s;
     
     // 披萨底
     const grad = ctx.createRadialGradient(x + w/2, y + h/2, 0, x + w/2, y + h/2, w/2);
@@ -463,17 +490,6 @@ function drawDough(dough) {
     ctx.closePath();
     ctx.fill();
     
-    // 切割线指示
-    const cutX = x + w * dough.cutLine;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.lineWidth = 2 * s;
-    ctx.setLineDash([4 * s, 4 * s]);
-    ctx.beginPath();
-    ctx.moveTo(cutX, y - 10 * s);
-    ctx.lineTo(cutX, y + h + 10 * s);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    
     // 配料预览
     ctx.font = `${10 * s}px Arial`;
     ctx.textAlign = 'center';
@@ -539,7 +555,7 @@ function drawUI() {
         }
         
         // 倒计时条
-        const timerRatio = orderTimer / 300;
+        const timerRatio = orderTimer / 400;
         ctx.fillStyle = timerRatio > 0.3 ? '#4CAF50' : '#F44336';
         ctx.fillRect(orderX + 5 * s, orderY + 45 * s, 100 * s * timerRatio, 3 * s);
     }
@@ -549,6 +565,19 @@ function drawUI() {
         ctx.font = `bold ${18 * s}px Arial`;
         ctx.textAlign = 'center';
         ctx.fillText('✅ 订单完成!', W / 2, 40 * s);
+    }
+    
+    // 订单反馈（完成/失败）
+    if (orderFeedbackTimer > 0) {
+        const feedbackAlpha = Math.min(orderFeedbackTimer / 20, 1);
+        ctx.save();
+        ctx.globalAlpha = feedbackAlpha;
+        ctx.fillStyle = orderFeedbackSuccess ? '#4CAF50' : '#F44336';
+        ctx.font = `bold ${20 * s}px Arial`;
+        ctx.textAlign = 'center';
+        const feedbackText = orderFeedbackSuccess ? '✅ 配料匹配!' : '❌ 未匹配';
+        ctx.fillText(feedbackText, W / 2, 80 * s);
+        ctx.restore();
     }
     
     ctx.restore();
@@ -576,7 +605,7 @@ function drawMenu() {
     ctx.fillText('匹配订单获得额外奖励', W / 2, H * 0.52);
     
     // 开始按钮
-    const pulse = 1 + Math.sin(Date.now() * 0.004) * 0.05;
+    const pulse = 1 + Math.sin(animTime * 4) * 0.05;
     ctx.save();
     ctx.translate(W / 2, H * 0.62);
     ctx.scale(pulse, pulse);
@@ -630,7 +659,7 @@ function drawGameOver() {
     }
     
     if (frameCount > 30) {
-        const pulse = 1 + Math.sin(Date.now() * 0.004) * 0.03;
+        const pulse = 1 + Math.sin(animTime * 3) * 0.03;
         ctx.save();
         ctx.translate(W / 2, H * 0.72);
         ctx.scale(pulse, pulse);
