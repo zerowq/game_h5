@@ -150,13 +150,13 @@ function cutDough() {
     if (!dough || dough.cutting || state !== STATE.PLAYING) return;
     dough.cutting = true;
     
-    // 点击位置相对于面团左边缘的比例
-    const clickX = dough.x + dough.w * dough.cutRatio;
+    // 默认从中间切（如果cutRatio没设置）
+    const ratio = (dough.cutRatio != null && dough.cutRatio >= 0 && dough.cutRatio <= 1) ? dough.cutRatio : 0.5;
+    const clickX = dough.x + dough.w * ratio;
     const leftW = clickX - dough.x;
     const rightW = dough.x + dough.w - clickX;
     
     if (leftW <= 0 || rightW <= 0) {
-        // 没切到，忽略
         dough.cutting = false;
         return;
     }
@@ -196,6 +196,14 @@ function addLayer(x, w) {
     layerCount++;
     score += Math.round(w / scale);
     checkOrder();
+    
+    // 失败条件：面团太窄（小于10px）切完后游戏结束
+    if (w < 10 * scale) {
+        feedbackMsg = '💀 面团太薄了!';
+        feedbackTimer = 60;
+        setTimeout(() => { if (state === STATE.PLAYING) gameOver(); }, 500);
+        return;
+    }
     
     // 延迟生成下一个面团
     setTimeout(() => {
@@ -271,31 +279,18 @@ function handleTap() {
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     if (state === STATE.PLAYING && dough && !dough.cutting) {
-        // 记录点击比例
-        const t = e.touches[0];
-        const rect = canvas.getBoundingClientRect();
-        const tx = (t.clientX - rect.left) / scale;
-        const ty = (t.clientY - rect.top) / scale;
-        if (dough && tx >= dough.x && tx <= dough.x + dough.w) {
-            dough.cutRatio = (tx - dough.x) / dough.w;
-        }
-        handleTap();
-    } else {
-        handleTap();
+        // 点击面团任意位置就切，默认从中间切
+        dough.cutRatio = 0.5;
     }
+    handleTap();
 });
 
 canvas.addEventListener('click', (e) => {
     if (state === STATE.PLAYING && dough && !dough.cutting) {
-        const rect = canvas.getBoundingClientRect();
-        const cx = (e.clientX - rect.left) / scale;
-        if (cx >= dough.x && cx <= dough.x + dough.w) {
-            dough.cutRatio = (cx - dough.x) / dough.w;
-        }
-        handleTap();
-    } else {
-        handleTap();
+        // 点击面团任意位置就切，默认从中间切
+        dough.cutRatio = 0.5;
     }
+    handleTap();
 });
 
 document.addEventListener('keydown', (e) => {
@@ -521,12 +516,15 @@ function drawMenu() {
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.font = `${14*s}px Arial`;
     ctx.fillText('Pizza Stack', W/2, H*0.31);
-    
+    // 操作说明
     ctx.font = `${12*s}px Arial`;
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillText('点击面团切一刀', W/2, H*0.42);
-    ctx.fillText('叠得越高分数越高', W/2, H*0.47);
-    ctx.fillText('匹配订单获得额外奖励', W/2, H*0.52);
+    ctx.fillText('🍕 玩法说明', W/2, H*0.38);
+    ctx.fillText('面团来回移动时，点击屏幕切一刀', W/2, H*0.42);
+    ctx.fillText('切得越准，留下的面团越大', W/2, H*0.47);
+    ctx.fillText('两边差不多大 → Perfect! 加分+', W/2, H*0.52);
+    ctx.fillText('叠得越高分数越高，面团会越来越薄', W/2, H*0.57);
+    ctx.fillText('面团太薄就切不动啦，注意把握时机', W/2, H*0.62);
     
     // 开始按钮
     const pulse = 1 + Math.sin(animTime * 4) * 0.05;
