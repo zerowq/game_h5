@@ -150,9 +150,8 @@ function cutDough() {
     if (!dough || dough.cutting || state !== STATE.PLAYING) return;
     dough.cutting = true;
     
-    // 默认从中间切（如果cutRatio没设置）
-    const cutRatio = (dough.cutRatio != null && dough.cutRatio >= 0 && dough.cutRatio <= 1) ? dough.cutRatio : 0.5;
-    const clickX = dough.x + dough.w * cutRatio;
+    // 从中间切
+    const clickX = dough.x + dough.w / 2;
     const leftW = clickX - dough.x;
     const rightW = dough.x + dough.w - clickX;
     
@@ -182,6 +181,9 @@ function cutDough() {
         dropPiece(clickX + rightW, rightW, 3, dough.y);
         addLayer(clickX, leftW);
     }
+    
+    dough.cutting = false;
+    dough.cutRatio = undefined;
 }
 
 function addLayer(x, w) {
@@ -278,18 +280,11 @@ function handleTap() {
 
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    if (state === STATE.PLAYING && dough && !dough.cutting) {
-        // 点击面团任意位置就切，默认从中间切
-        dough.cutRatio = 0.5;
-    }
     handleTap();
 });
 
 canvas.addEventListener('click', (e) => {
-    if (state === STATE.PLAYING && dough && !dough.cutting) {
-        // 点击面团任意位置就切，默认从中间切
-        dough.cutRatio = 0.5;
-    }
+    e.preventDefault();
     handleTap();
 });
 
