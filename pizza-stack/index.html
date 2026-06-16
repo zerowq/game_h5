@@ -25,12 +25,12 @@
 <canvas id="gameCanvas"></canvas>
 <script>
 // ============================================================
-//  披萨叠叠乐 - Pizza Stack (v6)
+//  披萨叠叠乐 - Pizza Stack (v7)
 //  核心玩法：
 //  1. 面团在栈顶上来回移动
-//  2. 点击屏幕 → 面团被切成两半
-//  3. 留下较大的一半叠到栈上，较小的一半飞出去
-//  4. 下一层面团基于留下的那一半宽度生成
+//  2. 点击 → 面团在**栈边缘处**被切断
+//  3. 超出栈的部分飞出去，留在栈上的部分叠到新层
+//  4. 切得越准（面团刚好在栈上），留下越多
 //  5. 面团越来越小，太小就输
 // ============================================================
 
@@ -77,31 +77,44 @@ let dough = null;
 let feedbackMsg = '';
 let feedbackTimer = 0;
 let feedbackColor = '#fff';
+let startDoughX = 0;  // 记录面团起始X，用于计算切掉多少
+
+// --- 栈顶Y ---
+function stackTopY() {
+    if (stack.length === 0) return H * 0.7;
+    return stack[stack.length - 1].y - stack[stack.length - 1].h;
+}
 
 // --- 生成第一层（基础层） ---
 function spawnBaseLayer() {
     const baseW = 120 * scale;
+    startDoughX = (W - baseW) / 2;
     dough = {
-        x: (W - baseW) / 2,
+        x: startDoughX,
         y: H * 0.7,
         w: baseW,
         h: 18 * scale,
-        speed: 2 * scale,
         cutting: false,
-        moving: true,
     };
+    // 第一层直接叠上
+    stack.push({ x: dough.x, y: dough.y, w: dough.w, h: dough.h });
+    layerCount = 1;
+    score = Math.round(dough.w / scale);
+    dough = null;
+    spawnMovingDough();
 }
 
 // --- 生成移动面团 ---
-function spawnDough() {
+function spawnMovingDough() {
     if (!dough || dough.w < 10 * scale) {
         doGameOver();
         return;
     }
     const dir = Math.random() < 0.5 ? -1 : 1;
-    const spd = (1.5 + layerCount * 0.15) * scale;
+    const spd = (1.5 + layerCount * 0.2) * scale;
+    startDoughX = dir > 0 ? -dough.w : W;
     dough = {
-        x: dir > 0 ? -dough.w : W,
+        x: startDoughX,
         y: stackTopY(),
         w: dough.w,
         h: 18 * scale,
@@ -111,49 +124,86 @@ function spawnDough() {
     };
 }
 
-// --- 栈顶Y ---
-function stackTopY() {
-    if (stack.length === 0) return H * 0.7;
-    return stack[stack.length - 1].y - stack[stack.length - 1].h;
-}
-
-// --- 切割 ---
+// --- 切割：面团在栈边缘处被切断 ---
 function cutDough() {
     if (!dough || dough.cutting || state !== STATE.PLAYING) return;
     dough.cutting = true;
     dough.moving = false;
     
-    // 从面团正中间切
-    const midX = dough.x + dough.w / 2;
-    const leftW = dough.w / 2;
-    const rightW = dough.w / 2;
+    // 上一层的右边缘
+    const lastLayer = stack[stack.length - 1];
+    const rightEdge = lastLayer.x + lastLayer.w;
+    const leftEdge = lastLayer.x;
     
-    // 丢弃较小的一半，保留较大的一半（这里相等，随机选一边）
-    if (leftW >= rightW) {
-        // 保留左边，丢弃右边
-        dropPiece(midX, rightW, 3, dough.y);
-        addLayer(dough.x, leftW);
-    } else {
-        // 保留右边，丢弃左边
-        dropPiece(dough.x, leftW, -3, dough.y);
-        addLayer(midX, rightW);
+    // 面团右边缘
+    const doughRight = dough.x + dough.w;
+    const doughLeft = dough.x;
+    
+    // 计算留在栈上的部分
+    // 保留面团与栈重叠的部分
+    const overlapLeft = Math.max(doughLeft, leftEdge);
+    const overlapRight = Math.min(doughRight, rightEdge);
+    
+    if (overlapRight <= overlapLeft) {
+        // 面团完全在栈外面！全部切掉
+        dropEntirePiece();
+        doGameOver();
+        return;
     }
+    
+    const remainW = overlapRight - overlapLeft;
+    const remainX = overlapLeft;
+    
+    // 计算切掉的部分
+    const droppedLeftW = overlapLeft - doughLeft;
+    const droppedRightW = doughRight - overlapRight;
+    
+    if (droppedLeftW > 0) {
+        dropPiece(doughLeft, droppedLeftW, -3, dough.y);
+    }
+    if (droppedRightW > 0) {
+        dropPiece(overlapRight, droppedRightW, 3, dough.y);
+    }
+    
+    // 检查是否完美切割（面团刚好在栈上，没有切掉任何部分）
+    const originalW = dough.w;
+    const perfect = (remainW >= originalW * 0.99);
+    
+    // 添加新层
+    addLayer(remainX, remainW, perfect);
 }
 
-function addLayer(x, w) {
+function dropEntirePiece() {
+    dropPiece(dough.x, dough.w, dough.speed > 0 ? 3 : -3, dough.y);
+}
+
+function addLayer(x, w, perfect) {
     const layer = { x: x, y: dough.y, w: w, h: dough.h };
     stack.push(layer);
     layerCount++;
     score += Math.round(w / scale);
     
-    // 完美切割奖励（第一层总是完美）
-    if (layerCount === 1) {
-        combo = 1;
-        score += 10;
-        feedbackMsg = '🎯 第一层! +10';
+    if (perfect) {
+        combo++;
+        score += 20 * combo;
+        feedbackMsg = `✨ 完美! Combo x${combo} +${20*combo}`;
         feedbackColor = '#FFD700';
-        feedbackTimer = 50;
-        addParticles(x + w/2, dough.y + dough.h/2, '#FFD700', 10);
+        feedbackTimer = 60;
+        addParticles(x + w/2, dough.y + dough.h/2, '#FFD700', 20);
+    } else {
+        combo = 0;
+        const lost = 1 - (w / dough.w);
+        if (lost > 0.5) {
+            feedbackMsg = '😱 切太多啦!';
+            feedbackColor = '#F44336';
+        } else if (lost > 0.2) {
+            feedbackMsg = '切掉了一些';
+            feedbackColor = '#FFA500';
+        } else {
+            feedbackMsg = '切得不错';
+            feedbackColor = '#4CAF50';
+        }
+        feedbackTimer = 40;
     }
     
     // 失败：面团太窄
@@ -167,7 +217,7 @@ function addLayer(x, w) {
     
     // 生成下一个面团
     setTimeout(() => {
-        if (state === STATE.PLAYING) spawnDough();
+        if (state === STATE.PLAYING) spawnMovingDough();
     }, 200);
 }
 
@@ -370,11 +420,11 @@ function drawMenu() {
     ctx.fillText('Pizza Stack', W/2, H*0.26);
     ctx.font = `${13*s}px Arial`;
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText('面团从左到右来回移动', W/2, H*0.36);
-    ctx.fillText('点击屏幕，面团从中间被切开', W/2, H*0.41);
-    ctx.fillText('留下较大的一半叠到栈上', W/2, H*0.46);
-    ctx.fillText('面团会越来越小，太小就输了', W/2, H*0.51);
-    ctx.fillText('叠得越高分数越高', W/2, H*0.56);
+    ctx.fillText('面团在栈顶上来回移动', W/2, H*0.36);
+    ctx.fillText('点击屏幕，面团在栈边缘处被切断', W/2, H*0.41);
+    ctx.fillText('超出栈的部分飞出去，留在栈上的叠起来', W/2, H*0.46);
+    ctx.fillText('切得越准，留下的面团越大', W/2, H*0.51);
+    ctx.fillText('面团越来越小，太小就输了', W/2, H*0.56);
     const pulse = 1 + Math.sin(animTime * 4) * 0.05;
     ctx.save();
     ctx.translate(W/2, H*0.68);
