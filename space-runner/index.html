@@ -96,8 +96,7 @@ const player = {
 
 function laneX(lane) {
     const gap = W / 3;
-    const base = W / 2 - gap / 2;
-    return base + lane * gap - player.w / 2;
+    return gap * lane + gap / 2 - player.w / 2;
 }
 
 function groundY() {
@@ -690,7 +689,7 @@ function draw() {
         ctx.stroke();
     }
     for (let lane = 0; lane <= 3; lane++) {
-        const lx = laneX(0) - 3*s + lane * (W/3);
+        const lx = lane * (W / 3);
         ctx.strokeStyle = 'rgba(68,170,255,0.15)';
         ctx.setLineDash([8*s, 4*s]);
         ctx.beginPath();
