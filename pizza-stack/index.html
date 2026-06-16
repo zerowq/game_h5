@@ -88,6 +88,7 @@ let currentOrder = [];
 let orderTimer = 0;
 let orderComplete = false;
 let orderFeedbackTimer = 0;  // 订单完成/失败反馈显示时间
+let orderFeedbackSuccess = false;
 
 function generateOrder() {
     currentOrder = [];
@@ -104,10 +105,11 @@ function generateOrder() {
 // --- 面团生成 ---
 function spawnDough() {
     const dir = Math.random() < 0.5 ? -1 : 1;
+    const w = (70 + Math.random() * 30) * scale;
     currentDough = {
-        x: dir > 0 ? -currentDough.w : W + currentDough.w,
+        x: dir > 0 ? -w : W + w,
         y: getStackTopY(),
-        w: (70 + Math.random() * 30) * scale,  // 稍微缩小宽度范围
+        w: w,
         h: 18 * scale,
         speed: (1.5 + Math.random() * 1.5) * scale * dir,  // 降低速度
         ingredients: [],
