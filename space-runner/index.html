@@ -25,9 +25,8 @@
 <canvas id="gameCanvas"></canvas>
 <script>
 // ============================================================
-//  太空跑酷 - Space Runner
-//  纯 HTML5 Canvas 实现，无需任何框架
-//  移动端/桌面端通用
+//  太空跑酷 - Space Runner (v2 - 优化版)
+//  改进：障碍物预警、渐进难度、更好的碰撞判定
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
@@ -36,7 +35,7 @@ const ctx = canvas.getContext('2d');
 // --- 屏幕适配 ---
 let W, H, scale;
 function resize() {
-    const ratio = 9 / 16; // 竖屏比例
+    const ratio = 9 / 16;
     if (window.innerWidth / window.innerHeight < ratio) {
         W = window.innerWidth;
         H = W / ratio;
@@ -44,7 +43,6 @@ function resize() {
         H = window.innerHeight;
         W = H * ratio;
     }
-    // 居中
     const dx = (window.innerWidth - W) / 2;
     const dy = (window.innerHeight - H) / 2;
     canvas.style.position = 'absolute';
@@ -52,7 +50,7 @@ function resize() {
     canvas.style.top = dy + 'px';
     canvas.width = W;
     canvas.height = H;
-    scale = W / 360; // 基准宽度 360
+    scale = W / 360;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -67,13 +65,14 @@ let frameCount = 0;
 
 // --- 玩家 ---
 const player = {
-    x: 0, y: 0, w: 36, h: 44,
+    x: 0, y: 0, w: 32, h: 44,
     vy: 0,
     jumping: false,
     ducking: false,
     grounded: true,
-    lane: 1, // 0=左 1=中 2=右
+    lane: 1,
     targetX: 0,
+    hitboxPadding: 6, // 碰撞框缩小，更宽容
     reset() {
         this.lane = 1;
         this.x = this.targetX = laneX(1);
@@ -82,6 +81,16 @@ const player = {
         this.jumping = false;
         this.ducking = false;
         this.grounded = true;
+    },
+    // 获取碰撞框（缩小版）
+    getHitbox() {
+        const p = this.hitboxPadding * scale;
+        return {
+            x: this.x + p,
+            y: this.y + p,
+            w: this.w - p * 2,
+            h: this.h - p * 2
+        };
     }
 };
 
@@ -107,27 +116,81 @@ for (let i = 0; i < 80; i++) {
     });
 }
 
+// --- 预警系统 ---
+let warnings = []; // 屏幕上的预警指示器
+
+function addWarning(lane, type) {
+    warnings.push({
+        lane: lane,
+        type: type,
+        alpha: 1,
+        phase: 0
+    });
+}
+
+function drawWarnings() {
+    const s = scale;
+    for (const w of warnings) {
+        w.phase += 0.1;
+        const pulse = 0.5 + Math.sin(w.phase) * 0.5;
+        const x = W / 3 * w.lane + W / 6 - 12 * s;
+        
+        ctx.save();
+        ctx.globalAlpha = w.alpha * (0.3 + pulse * 0.5);
+        
+        // 车道顶部预警灯
+        ctx.fillStyle = w.type === 'jump' ? '#ffaa00' : 
+                        w.type === 'duck' ? '#aa44ff' : '#ff4444';
+        ctx.beginPath();
+        ctx.moveTo(x + 12*s, 5*s);
+        ctx.lineTo(x + 24*s, 5*s);
+        ctx.lineTo(x + 18*s, 16*s);
+        ctx.lineTo(x + 6*s, 16*s);
+        ctx.closePath();
+        ctx.fill();
+        
+        // 图标
+        ctx.globalAlpha = w.alpha;
+        ctx.font = `${14*s}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#fff';
+        const icon = w.type === 'jump' ? '↑跳' : 
+                     w.type === 'duck' ? '↓蹲' : '→';
+        ctx.fillText(icon, x + 12*s, 14*s);
+        
+        ctx.restore();
+    }
+    
+    // 更新预警淡出
+    for (let i = warnings.length - 1; i >= 0; i--) {
+        warnings[i].alpha -= 0.015;
+        if (warnings[i].alpha <= 0) warnings.splice(i, 1);
+    }
+}
+
 // --- 障碍物 ---
 let obstacles = [];
 const OBS_TYPES = [
-    { name: 'small', w: 22 * scale, h: 30 * scale, color: '#ff4444' },
-    { name: 'tall', w: 28 * scale, h: 55 * scale, color: '#ff8800' },
-    { name: 'wide', w: 60 * scale, h: 24 * scale, color: '#ff44aa' },
-    { name: 'flying', w: 30 * scale, h: 22 * scale, color: '#aa44ff', fly: true },
+    { name: 'small', w: 22*scale, h: 30*scale, color: '#ff4444', jump: true },
+    { name: 'tall', w: 28*scale, h: 55*scale, color: '#ff8800', jump: true },
+    { name: 'wide', w: 60*scale, h: 24*scale, color: '#ff44aa', duck: true },
+    { name: 'flying', w: 30*scale, h: 22*scale, color: '#aa44ff', fly: true, duck: true },
 ];
 
 function spawnObstacle() {
-    const type = OBS_TYPES[Math.floor(Math.random() * OBS_TYPES.length)];
+    // 难度越高，更多种障碍组合
+    const typeIdx = Math.floor(Math.random() * Math.min(4, 1 + Math.floor(speed * 0.5)));
+    const type = OBS_TYPES[typeIdx];
     const lane = Math.floor(Math.random() * 3);
     const obs = {
         ...type,
         x: laneX(lane),
         lane: lane,
         passed: false,
-        fly: type.fly || false
+        fly: type.fly || false,
+        warningShown: false
     };
     if (obs.fly) {
-        // 飞行障碍物高度：玩家需蹲下躲避
         obs.y = groundY() - player.h - 50 * scale;
     } else {
         obs.y = groundY() - obs.h;
@@ -169,7 +232,7 @@ function addParticles(x, y, color, count) {
     }
 }
 
-// --- 碰撞检测 ---
+// --- 碰撞检测（使用缩小的 hitbox）---
 function rectCollide(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x &&
            a.y < b.y + b.h && a.y + a.h > b.y;
@@ -227,10 +290,11 @@ document.addEventListener('keydown', (e) => {
 function startGame() {
     state = STATE.PLAYING;
     score = 0;
-    speed = 3;
+    speed = 2.5; // 初始速度更慢
     obstacles = [];
     coins = [];
     particles = [];
+    warnings = [];
     inputQueue = [];
     frameCount = 0;
     player.reset();
@@ -247,8 +311,8 @@ function update() {
 
     frameCount++;
 
-    // 逐渐加速
-    if (frameCount % 300 === 0) speed += 0.3;
+    // 逐渐加速（更平缓）
+    if (frameCount % 300 === 0) speed += 0.2;
 
     // 处理输入队列
     while (inputQueue.length > 0) {
@@ -260,7 +324,7 @@ function update() {
             player.lane++;
             player.targetX = laneX(player.lane);
         } else if (dir === 'jump' && player.grounded) {
-            player.vy = -10 * scale;
+            player.vy = -11 * scale;
             player.jumping = true;
             player.grounded = false;
         } else if (dir === 'duck') {
@@ -268,7 +332,6 @@ function update() {
         }
     }
 
-    // 玩家持续蹲下检测
     // 平滑移动
     player.x += (player.targetX - player.x) * 0.2;
 
@@ -285,13 +348,16 @@ function update() {
         }
     }
 
-    // 生成障碍物
-    if (frameCount % Math.max(40, 80 - Math.floor(speed * 5)) === 0) {
+    // --- 生成障碍物（增加间隔，加入预警机制）---
+    // 基础间隔 60 帧，随速度增加递减但不低于 35
+    const spawnInterval = Math.max(35, 75 - Math.floor(speed * 4));
+    
+    if (frameCount % spawnInterval === 0) {
         spawnObstacle();
     }
 
     // 生成金币
-    if (frameCount % 100 === 0 && Math.random() > 0.3) {
+    if (frameCount % 120 === 0 && Math.random() > 0.3) {
         spawnCoin();
     }
 
@@ -300,15 +366,30 @@ function update() {
         const obs = obstacles[i];
         obs.x -= speed * scale;
 
-        // 计分（通过障碍）
+        // 预警：当障碍物进入屏幕但还未到达玩家位置时
+        if (!obs.warningShown && obs.x < W - 60 * scale && obs.x > -20) {
+            obs.warningShown = true;
+            let warnType = 'avoid'; // 默认闪避
+            if (obs.jump) warnType = 'jump';
+            if (obs.duck) warnType = 'duck';
+            addWarning(obs.lane, warnType);
+        }
+
+        // 计分
         if (!obs.passed && obs.x + obs.w < player.x) {
             obs.passed = true;
             score++;
         }
 
-        // 碰撞检测
-        if (rectCollide(player, obs)) {
-            // 碰撞死亡
+        // 碰撞检测（使用缩小 hitbox）
+        const playerHB = player.getHitbox();
+        const obsHB = {
+            x: obs.x + 4*scale,
+            y: obs.y + 4*scale,
+            w: obs.w - 8*scale,
+            h: obs.h - 8*scale
+        };
+        if (rectCollide(playerHB, obsHB)) {
             addParticles(player.x + player.w/2, player.y + player.h/2, '#ff4444', 20);
             state = STATE.GAMEOVER;
             frameCount = 0;
@@ -366,12 +447,10 @@ function update() {
 function drawStarship(x, y, w, h, ducking) {
     const s = scale;
     ctx.save();
-    // 机身
     const bodyColor = ducking ? '#44aaff' : '#66ccff';
     const darkColor = ducking ? '#3388dd' : '#4499dd';
 
     if (ducking) {
-        // 蹲下时的扁平形态
         ctx.fillStyle = bodyColor;
         ctx.beginPath();
         ctx.ellipse(x + w/2, y + h/2, w/2 + 2*s, h/2 - 2*s, 0, 0, Math.PI * 2);
@@ -381,7 +460,6 @@ function drawStarship(x, y, w, h, ducking) {
         ctx.ellipse(x + w/2, y + h/3, w/3, h/4, 0, 0, Math.PI * 2);
         ctx.fill();
     } else {
-        // 飞船主体
         ctx.fillStyle = bodyColor;
         ctx.beginPath();
         ctx.moveTo(x + w/2, y);
@@ -392,13 +470,11 @@ function drawStarship(x, y, w, h, ducking) {
         ctx.closePath();
         ctx.fill();
 
-        // 驾驶舱
         ctx.fillStyle = '#aaffee';
         ctx.beginPath();
         ctx.ellipse(x + w/2, y + h * 0.3, w * 0.18, h * 0.15, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // 引擎火焰
         const flicker = Math.random() * 4 * s;
         ctx.fillStyle = '#ff8800';
         ctx.beginPath();
@@ -476,15 +552,11 @@ function drawCoin(coin) {
 
 function drawUI() {
     const s = scale;
-
-    // 分数
     ctx.save();
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.font = `bold ${24*s}px Arial`;
     ctx.textAlign = 'left';
     ctx.fillText(`🏆 ${score}`, 10*s, 35*s);
-
-    // 最高分
     ctx.font = `${12*s}px Arial`;
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.fillText(`最高: ${highScore}`, 10*s, 55*s);
@@ -493,25 +565,18 @@ function drawUI() {
 
 function drawMenu() {
     const s = scale;
-
-    // 标题
     ctx.save();
     ctx.fillStyle = '#fff';
     ctx.font = `bold ${36*s}px Arial`;
     ctx.textAlign = 'center';
     ctx.fillText('🚀 太空跑酷', W/2, H * 0.25);
-
     ctx.font = `${14*s}px Arial`;
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.fillText('Space Runner', W/2, H * 0.31);
-
-    // 操作说明
     ctx.font = `${12*s}px Arial`;
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.fillText('← → 换道  |  ↑ 跳跃  |  ↓ 蹲下', W/2, H * 0.40);
     ctx.fillText('移动端：左右滑动 + 上滑跳跃', W/2, H * 0.44);
-
-    // 开始按钮
     const pulse = 1 + Math.sin(Date.now() * 0.004) * 0.05;
     ctx.save();
     ctx.translate(W/2, H * 0.58);
@@ -524,43 +589,35 @@ function drawMenu() {
     ctx.font = `bold ${20*s}px Arial`;
     ctx.fillText('点击开始', 0, 7*s);
     ctx.restore();
-
     if (highScore > 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.4)';
         ctx.font = `${12*s}px Arial`;
         ctx.fillText(`最高分: ${highScore}`, W/2, H * 0.72);
     }
-
     ctx.restore();
 }
 
 function drawGameOver() {
     const s = scale;
     const alpha = Math.min(frameCount / 30, 0.7);
-
     ctx.save();
     ctx.fillStyle = `rgba(0,0,0,${alpha})`;
     ctx.fillRect(0, 0, W, H);
-
     ctx.fillStyle = '#ff4444';
     ctx.font = `bold ${32*s}px Arial`;
     ctx.textAlign = 'center';
     ctx.fillText('游戏结束', W/2, H * 0.30);
-
     ctx.fillStyle = '#fff';
     ctx.font = `bold ${48*s}px Arial`;
     ctx.fillText(`${score}`, W/2, H * 0.42);
-
     ctx.font = `${14*s}px Arial`;
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.fillText(`得分`, W/2, H * 0.48);
-
     if (score >= highScore && score > 0) {
         ctx.fillStyle = '#ffdd44';
         ctx.font = `bold ${16*s}px Arial`;
         ctx.fillText('🎉 新纪录！', W/2, H * 0.55);
     }
-
     if (frameCount > 30) {
         const pulse = 1 + Math.sin(Date.now() * 0.004) * 0.03;
         ctx.save();
@@ -575,7 +632,6 @@ function drawGameOver() {
         ctx.fillText('再来一次', 0, 6*s);
         ctx.restore();
     }
-
     ctx.restore();
 }
 
@@ -594,8 +650,6 @@ function roundRect(ctx, x, y, w, h, r) {
 
 function draw() {
     const s = scale;
-
-    // 背景
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     grad.addColorStop(0, '#0a0a2e');
     grad.addColorStop(0.5, '#1a1a4e');
@@ -603,7 +657,6 @@ function draw() {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // 星星
     for (const star of stars) {
         ctx.fillStyle = `rgba(255,255,255,${star.brightness})`;
         ctx.beginPath();
@@ -622,7 +675,6 @@ function draw() {
         ctx.lineTo(W, gy);
         ctx.stroke();
     }
-    // 车道线
     for (let lane = 0; lane <= 3; lane++) {
         const lx = laneX(0) - 3*s + lane * (W/3);
         ctx.strokeStyle = 'rgba(68,170,255,0.15)';
@@ -634,7 +686,6 @@ function draw() {
         ctx.setLineDash([]);
     }
 
-    // 地面
     ctx.fillStyle = '#111133';
     ctx.fillRect(0, groundTop, W, H - groundTop);
     ctx.strokeStyle = '#44aaff';
@@ -645,16 +696,12 @@ function draw() {
     ctx.stroke();
 
     if (state === STATE.PLAYING || state === STATE.GAMEOVER) {
-        // 障碍物
+        // 预警指示器（在障碍物之前绘制）
+        drawWarnings();
+
         for (const obs of obstacles) drawObstacle(obs);
-
-        // 金币
         for (const coin of coins) drawCoin(coin);
-
-        // 玩家
-        drawStarship(player.x, player.y, player.w, player.h, false);
-
-        // 粒子
+        drawStarship(player.x, player.y, player.w, player.h, player.ducking);
         for (const p of particles) {
             ctx.globalAlpha = p.life;
             ctx.fillStyle = p.color;
@@ -663,8 +710,6 @@ function draw() {
             ctx.fill();
         }
         ctx.globalAlpha = 1;
-
-        // UI
         drawUI();
     }
 
@@ -679,7 +724,6 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
-// 启动
 player.reset();
 loop();
 </script>
