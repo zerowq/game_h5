@@ -139,7 +139,7 @@ function spawnMovingDough() {
     const lastLayer = stack[stack.length - 1];
     // 检查是否是障碍层（每隔5层出现一个）
     const isTrap = (layerCount % 5 === 0);
-    const spd = (1.5 + layerCount * 0.15) * scale;
+    const spd = (1.2 + Math.pow(layerCount, 0.7) * 0.25) * scale;
     dough.x = lastLayer.x + lastLayer.w;
     dough.y = stackTopY();
     dough.speed = spd;
