@@ -89,7 +89,7 @@ function stackTopY() {
 function spawnBaseLayer() {
     const baseW = 120 * scale;
     startDoughX = (W - baseW) / 2;
-    dough = {
+    const baseDough = {
         x: startDoughX,
         y: H * 0.7,
         w: baseW,
@@ -97,11 +97,19 @@ function spawnBaseLayer() {
         cutting: false,
     };
     // 第一层直接叠上
-    stack.push({ x: dough.x, y: dough.y, w: dough.w, h: dough.h });
+    stack.push({ x: baseDough.x, y: baseDough.y, w: baseDough.w, h: baseDough.h });
     layerCount = 1;
-    score = Math.round(dough.w / scale);
-    dough = null;
-    spawnMovingDough();
+    score = Math.round(baseDough.w / scale);
+    // 保存第一层宽度供下一层使用
+    dough = {
+        x: W,  // 放在屏幕外
+        y: stackTopY(),
+        w: baseDough.w,
+        h: baseDough.h,
+        speed: 2 * scale,
+        cutting: false,
+        moving: true,
+    };
 }
 
 // --- 生成移动面团 ---
@@ -114,16 +122,11 @@ function spawnMovingDough() {
     // 从栈的右边缘开始，往右滑
     const dir = 1;
     const spd = (1.5 + layerCount * 0.2) * scale;
-    startDoughX = lastLayer.x + lastLayer.w;
-    dough = {
-        x: startDoughX,
-        y: stackTopY(),
-        w: dough.w,
-        h: 18 * scale,
-        speed: spd * dir,
-        cutting: false,
-        moving: true,
-    };
+    dough.x = lastLayer.x + lastLayer.w;
+    dough.y = stackTopY();
+    dough.speed = spd * dir;
+    dough.cutting = false;
+    dough.moving = true;
 }
 
 // --- 切割：面团在栈边缘处被切断 ---
@@ -217,14 +220,12 @@ function addLayer(x, w, perfect) {
         feedbackMsg = '💀 面团太薄了!';
         feedbackColor = '#F44336';
         feedbackTimer = 60;
-        setTimeout(() => { if (state === STATE.PLAYING) doGameOver(); }, 600);
+        doGameOver();
         return;
     }
     
     // 生成下一个面团
-    setTimeout(() => {
-        if (state === STATE.PLAYING) spawnMovingDough();
-    }, 200);
+    spawnMovingDough();
 }
 
 function dropPiece(startX, w, vx, y) {
@@ -521,7 +522,7 @@ let lastTime = 0;
 function loop(timestamp) {
     const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
     lastTime = timestamp;
-    if (state === STATE.GAMEOVER) animTime += dt;
+    if (state === STATE.GAMEOVER || state === STATE.MENU) animTime += dt;
     update(dt);
     draw();
     requestAnimationFrame(loop);
