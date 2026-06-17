@@ -152,7 +152,8 @@ function cutDough() {
         feedbackMsg = '😱 切偏了!';
         feedbackColor = '#F44336';
         feedbackTimer = 60;
-        setTimeout(() => { if (state === STATE.PLAYING) doGameOver(); }, 600);
+        // 不再用setTimeout延迟gameover，避免和startGame冲突
+        doGameOver();
         return;
     }
     
@@ -278,7 +279,7 @@ function doGameOver() {
 function handleTap() {
     if (state === STATE.MENU) { startGame(); return; }
     if (state === STATE.GAMEOVER) {
-        if (animTime > 0.5) startGame();
+        startGame();
         return;
     }
     if (state === STATE.PLAYING && dough && !dough.cutting) {
