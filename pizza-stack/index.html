@@ -206,40 +206,31 @@ function cutDough() {
 }
 
 function cutTrap() {
-    // 陷阱层：切成两半，一半叠在左一半叠在右
+    // 双倍层：不切小，直接叠两层同样宽度的面团
+    // 这是奖励层，让玩家有机会恢复
     const mid = dough.x + dough.w / 2;
-    const leftW = dough.w / 2;
-    const rightW = dough.w / 2;
+    const fullW = dough.w;
 
-    // 左半边
+    // 叠第一层
     stack.push({
-        x: dough.x, y: dough.y, w: leftW, h: dough.h,
+        x: dough.x, y: dough.y, w: fullW, h: dough.h,
         ingredients: dough.ingredients,
     });
     layerCount++;
-    score += Math.round(leftW / scale);
+    score += Math.round(fullW / scale);
 
-    // 右半边
+    // 叠第二层
     stack.push({
-        x: mid, y: dough.y, w: rightW, h: dough.h,
+        x: dough.x, y: dough.y - dough.h, w: fullW, h: dough.h,
         ingredients: dough.ingredients,
     });
     layerCount++;
-    score += Math.round(rightW / scale);
+    score += Math.round(fullW / scale);
 
     feedbackMsg = '💥 双倍层! +双倍分';
     feedbackColor = '#FF6B35';
     feedbackTimer = 60;
     addParticles(mid, dough.y + dough.h/2, '#FF6B35', 20);
-
-    // 检查面团是否太窄
-    if (leftW < 10 * scale) {
-        feedbackMsg = '💀 面团太薄了!';
-        feedbackColor = '#F44336';
-        feedbackTimer = 60;
-        doGameOver();
-        return;
-    }
 
     spawnMovingDough();
 }
