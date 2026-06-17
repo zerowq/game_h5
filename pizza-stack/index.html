@@ -110,9 +110,11 @@ function spawnMovingDough() {
         doGameOver();
         return;
     }
-    const dir = Math.random() < 0.5 ? -1 : 1;
+    const lastLayer = stack[stack.length - 1];
+    // 从栈的右边缘开始，往右滑
+    const dir = 1;
     const spd = (1.5 + layerCount * 0.2) * scale;
-    startDoughX = dir > 0 ? -dough.w : W;
+    startDoughX = lastLayer.x + lastLayer.w;
     dough = {
         x: startDoughX,
         y: stackTopY(),
@@ -147,7 +149,10 @@ function cutDough() {
     if (overlapRight <= overlapLeft) {
         // 面团完全在栈外面！全部切掉
         dropEntirePiece();
-        doGameOver();
+        feedbackMsg = '😱 切偏了!';
+        feedbackColor = '#F44336';
+        feedbackTimer = 60;
+        setTimeout(() => { if (state === STATE.PLAYING) doGameOver(); }, 600);
         return;
     }
     
