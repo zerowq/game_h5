@@ -161,33 +161,30 @@ function cutDough() {
         return;
     }
 
-    const lastLayer = stack[stack.length - 1];
-    const rightEdge = lastLayer.x + lastLayer.w;
-    const leftEdge = lastLayer.x;
-    const doughRight = dough.x + dough.w;
-    const doughLeft = dough.x;
+    // 点击位置决定切在哪：面团中心
+    const cutX = dough.x + dough.w / 2;
+    const leftW = dough.w / 2;
+    const rightW = dough.w / 2;
 
-    const overlapLeft = Math.max(doughLeft, leftEdge);
-    const overlapRight = Math.min(doughRight, rightEdge);
+    // 随机决定保留哪一半（模拟真实切割的不确定性）
+    // 但保留比例在40%-60%之间，不是固定50%
+    const keepRatio = 0.4 + Math.random() * 0.2; // 0.4-0.6
+    const keepW = Math.round(dough.w * keepRatio);
+    const dropW = dough.w - keepW;
 
-    if (overlapRight <= overlapLeft) {
-        dropEntirePiece();
-        feedbackMsg = '😱 切偏了!';
-        feedbackColor = '#F44336';
-        feedbackTimer = 60;
-        doGameOver();
-        return;
+    // 随机丢弃左边还是右边
+    const dropLeft = Math.random() < 0.5;
+    const remainW = keepW;
+    const remainX = dropLeft ? (dough.x + dropW) : dough.x;
+
+    if (dropLeft) {
+        dropPiece(dough.x, dropW, -3, dough.y);
+    } else {
+        dropPiece(dough.x + dough.w - dropW, dropW, 3, dough.y);
     }
 
-    const remainW = overlapRight - overlapLeft;
-    const remainX = overlapLeft;
-
-    const droppedLeftW = overlapLeft - doughLeft;
-    const droppedRightW = doughRight - overlapRight;
-    if (droppedLeftW > 0) dropPiece(doughLeft, droppedLeftW, -3, dough.y);
-    if (droppedRightW > 0) dropPiece(overlapRight, droppedRightW, 3, dough.y);
-
     // 配料连线检测
+    const lastLayer = stack[stack.length - 1];
     const lastIng = lastLayer.ingredients.map(i => i.name);
     const curIng = dough.ingredients.map(i => i.name);
     let linkBonus = 0;
@@ -204,11 +201,8 @@ function cutDough() {
         if (info) addParticles(remainX + remainW/2, dough.y, info.color, 5);
     }
 
-    const originalW = dough.w;
-    const perfect = (remainW >= originalW * 0.99);
-
     // 添加新层
-    addLayer(remainX, remainW, perfect, linkBonus);
+    addLayer(remainX, remainW, linkBonus);
 }
 
 function cutTrap() {
@@ -249,7 +243,7 @@ function cutTrap() {
     spawnMovingDough();
 }
 
-function addLayer(x, w, perfect, linkBonus) {
+function addLayer(x, w, linkBonus) {
     const layer = {
         x: x, y: dough.y, w: w, h: dough.h,
         ingredients: [...dough.ingredients],
@@ -258,32 +252,46 @@ function addLayer(x, w, perfect, linkBonus) {
     layerCount++;
     score += Math.round(w / scale);
 
-    if (perfect) {
+    // 配料三连检测（最近3层）
+    let tripleBonus = 0;
+    if (stack.length >= 3) {
+        const last3 = stack.slice(-3).map(l => l.ingredients[0].name);
+        if (last3[0] === last3[1] && last3[1] === last3[2]) {
+            tripleBonus = 50;
+            feedbackMsg = '🔥 配料三连! +50';
+            feedbackColor = '#FF4444';
+            feedbackTimer = 80;
+            addParticles(x + w/2, dough.y, '#FF4444', 25);
+        }
+    }
+
+    // 检查保留比例（模拟切割结果）
+    const keptRatio = w / dough.w;
+    if (keptRatio > 0.55) {
         combo++;
         score += 10 * combo;
-        feedbackMsg = `✨ 完美! Combo x${combo}`;
+        feedbackMsg = `✨ 好刀! Combo x${combo}`;
         feedbackColor = '#FFD700';
         feedbackTimer = 60;
         addParticles(x + w/2, dough.y + dough.h/2, '#FFD700', 15);
     } else {
         combo = 0;
-        const lost = 1 - (w / dough.w);
-        if (lost > 0.5) {
-            feedbackMsg = '😱 切太多啦!';
-            feedbackColor = '#F44336';
-        } else {
-            feedbackMsg = '切得不错';
-            feedbackColor = '#4CAF50';
-        }
+        feedbackMsg = '切得一般';
+        feedbackColor = '#FFA500';
         feedbackTimer = 40;
     }
 
     if (linkBonus > 0) {
         score += linkBonus;
-        const msg = feedbackMsg;
-        feedbackMsg = `${msg} +${linkBonus}连线!`;
+        if (tripleBonus === 0) {
+            feedbackMsg += ` +${linkBonus}连线!`;
+        }
         feedbackColor = '#00FFFF';
         feedbackTimer = 70;
+    }
+    if (tripleBonus > 0) {
+        score += tripleBonus;
+        feedbackColor = '#FF4444';
     }
 
     // 失败：面团太窄
@@ -293,6 +301,14 @@ function addLayer(x, w, perfect, linkBonus) {
         feedbackTimer = 60;
         doGameOver();
         return;
+    }
+
+    // 关卡进度提示
+    if (layerCount % 10 === 0) {
+        feedbackMsg = `🎉 突破${layerCount}层!`;
+        feedbackColor = '#00FF00';
+        feedbackTimer = 80;
+        addParticles(W/2, H*0.5, '#00FF00', 30);
     }
 
     spawnMovingDough();
@@ -534,18 +550,19 @@ function drawMenu() {
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.fillText('🍕 怎么玩？', W/2, H*0.33);
     ctx.fillText('1. 面团在栈顶上来回移动', W/2, H*0.39);
-    ctx.fillText('2. 点击屏幕，面团被切断', W/2, H*0.45);
-    ctx.fillText('3. 超出栈的部分飞走，留下的叠起来', W/2, H*0.51);
-    ctx.fillText('4. 切得越准，留下的面团越大', W/2, H*0.57);
-    ctx.fillText('5. 面团越来越小，太小就输了', W/2, H*0.63);
+    ctx.fillText('2. 点击屏幕，面团被随机切割', W/2, H*0.45);
+    ctx.fillText('3. 保留越多，下一层越大', W/2, H*0.51);
+    ctx.fillText('4. 相同配料叠在一起有连线加分', W/2, H*0.57);
+    ctx.fillText('5. 连续3层相同配料 = 🔥三连!', W/2, H*0.63);
+    ctx.fillText('6. 每10层突破一次，面团会越来越小', W/2, H*0.69);
     // 新模式说明
-    ctx.fillStyle = '#00FFFF';
+    ctx.fillStyle = '#FFD700';
     ctx.font = `bold ${13*s}px Arial`;
-    ctx.fillText('🎮 新模式！', W/2, H*0.70);
-    ctx.fillStyle = 'rgba(0,255,255,0.6)';
+    ctx.fillText('🎮 新版本！', W/2, H*0.76);
+    ctx.fillStyle = 'rgba(255,215,0,0.6)';
     ctx.font = `${12*s}px Arial`;
-    ctx.fillText('每5层出现双倍层，一次叠两层', W/2, H*0.75);
-    ctx.fillText('相同配料叠在一起有连线加分', W/2, H*0.80);
+    ctx.fillText('保留比例决定combo加成', W/2, H*0.81);
+    ctx.fillText('每5层出现双倍层，一次叠两层', W/2, H*0.86);
     const pulse = 1 + Math.sin(animTime * 4) * 0.05;
     ctx.save();
     ctx.translate(W/2, H*0.90);
