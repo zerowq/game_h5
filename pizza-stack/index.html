@@ -87,6 +87,25 @@ function stackTopY() {
     return stack[stack.length - 1].y - stack[stack.length - 1].h;
 }
 
+// --- 检查是否需要重置栈位置 ---
+function checkResetStack() {
+    // 如果栈顶已经快到屏幕顶部了，把所有层往下移
+    if (stack.length > 0) {
+        const topY = stack[stack.length - 1].y;
+        if (topY < H * 0.15) {
+            const shiftAmount = H * 0.5; // 整体下移半个屏幕
+            for (const layer of stack) {
+                layer.y += shiftAmount;
+            }
+            // 如果dough也有y，一起移
+            if (dough) dough.y += shiftAmount;
+            feedbackMsg = '📦 栈已重置!';
+            feedbackColor = '#00FFFF';
+            feedbackTimer = 40;
+        }
+    }
+}
+
 // --- 生成第一层 ---
 function spawnBaseLayer() {
     const baseW = 120 * scale;
@@ -387,6 +406,9 @@ function update(dt) {
         const targetY = -(dough.y - H * 0.65);
         cameraY += (targetY - cameraY) * 0.1;
     }
+    
+    // 检查是否需要重置栈位置
+    checkResetStack();
 }
 
 function drawRectRounded(x, y, w, h, r, fill, stroke) {
