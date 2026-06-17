@@ -427,11 +427,12 @@ function drawMenu() {
     ctx.fillText('Pizza Stack', W/2, H*0.26);
     ctx.font = `${13*s}px Arial`;
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText('面团在栈顶上来回移动', W/2, H*0.36);
-    ctx.fillText('点击屏幕，面团在栈边缘处被切断', W/2, H*0.41);
-    ctx.fillText('超出栈的部分飞出去，留在栈上的叠起来', W/2, H*0.46);
-    ctx.fillText('切得越准，留下的面团越大', W/2, H*0.51);
-    ctx.fillText('面团越来越小，太小就输了', W/2, H*0.56);
+    ctx.fillText('🍕 怎么玩？', W/2, H*0.33);
+    ctx.fillText('1. 面团在栈顶上来回移动', W/2, H*0.39);
+    ctx.fillText('2. 点击屏幕，面团被切断', W/2, H*0.45);
+    ctx.fillText('3. 超出栈的部分飞走，留下的叠起来', W/2, H*0.51);
+    ctx.fillText('4. 切得越准，留下的面团越大', W/2, H*0.57);
+    ctx.fillText('5. 面团越来越小，太小就输了', W/2, H*0.63);
     const pulse = 1 + Math.sin(animTime * 4) * 0.05;
     ctx.save();
     ctx.translate(W/2, H*0.68);
