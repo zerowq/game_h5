@@ -97,11 +97,11 @@ function checkResetStack() {
             for (const layer of stack) {
                 layer.y += shiftAmount;
             }
-            // 如果dough也有y，一起移
-            if (dough) dough.y += shiftAmount;
             feedbackMsg = '📦 栈已重置!';
             feedbackColor = '#00FFFF';
             feedbackTimer = 40;
+            // 重新计算dough的y（如果面团存在）
+            if (dough) dough.y = stackTopY();
         }
     }
 }
@@ -132,12 +132,22 @@ function spawnBaseLayer() {
 
 // --- 生成移动面团 ---
 function spawnMovingDough() {
-    if (!dough || dough.w < 10 * scale) {
+    // 检查上一层是否太窄
+    if (stack.length > 0 && stack[stack.length - 1].w < 10 * scale) {
+        doGameOver();
+        return;
+    }
+    // 检查dough对象是否存在（第一次baseLayer后dough是null）
+    if (!dough) {
+        doGameOver();
+        return;
+    }
+    if (dough.w < 10 * scale) {
         doGameOver();
         return;
     }
     const lastLayer = stack[stack.length - 1];
-    // 检查是否是障碍层（每隔5层出现一个）
+    // 检查是否是双倍层（每隔5层出现一个）
     const isTrap = (layerCount % 5 === 0);
     const spd = (1.2 + Math.pow(layerCount, 0.7) * 0.25) * scale;
     dough.x = lastLayer.x + lastLayer.w;
@@ -232,6 +242,7 @@ function cutTrap() {
     feedbackTimer = 60;
     addParticles(mid, dough.y + dough.h/2, '#FF6B35', 20);
 
+    // 双倍层后，下一层宽度不变，直接生成
     spawnMovingDough();
 }
 
