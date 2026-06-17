@@ -232,7 +232,8 @@ function cutTrap() {
     feedbackTimer = 60;
     addParticles(mid, dough.y + dough.h/2, '#FF6B35', 20);
 
-    if (layerCount < 10 * scale) {
+    // 检查面团是否太窄
+    if (leftW < 10 * scale) {
         feedbackMsg = '💀 面团太薄了!';
         feedbackColor = '#F44336';
         feedbackTimer = 60;
